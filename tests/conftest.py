@@ -137,10 +137,15 @@ def make_token(
 
 
 def _make_servicex_access_token(expires_in: int = 600) -> str:
-    """Mint an unsigned-verification-only access token, mirroring test_redeem.py's helper."""
+    """Mint an unsigned-verification-only access token, mirroring test_redeem.py's helper.
+
+    Key content is irrelevant (redeem.py never verifies this token's
+    signature — see redeem.py's _expires_in docstring) but must still be
+    >=32 bytes to avoid pytest's InsecureKeyLengthWarning noise.
+    """
     return jwt.encode(
         {"exp": int(time.time()) + expires_in, "sub": "servicex-user"},
-        "irrelevant-since-unverified",
+        "irrelevant-since-unverified-but-long-enough",
         algorithm="HS256",
     )
 

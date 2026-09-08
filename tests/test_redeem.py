@@ -14,9 +14,11 @@ from servicex_token_service.redeem import BadRefreshTokenError, RedeemError, red
 
 
 def _make_access_token(exp_in: int = 600) -> str:
+    # Key content is irrelevant (redeem.py never verifies this token's
+    # signature) but must be >=32 bytes to avoid InsecureKeyLengthWarning.
     return jwt.encode(
         {"exp": int(time.time()) + exp_in, "sub": "servicex-user"},
-        "irrelevant-since-unverified",
+        "irrelevant-since-unverified-but-long-enough",
         algorithm="HS256",
     )
 
@@ -96,7 +98,11 @@ class TestRedeem:
         settings = Settings(
             _env_file=None, servicex_backend_url="https://sx.example.com"
         )
-        access_token = jwt.encode({"sub": "servicex-user"}, "x", algorithm="HS256")
+        access_token = jwt.encode(
+            {"sub": "servicex-user"},
+            "irrelevant-since-unverified-but-long-enough",
+            algorithm="HS256",
+        )
 
         class FakeAdapter:
             def __init__(self, url: str, *, refresh_token: str) -> None:
