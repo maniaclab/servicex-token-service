@@ -116,8 +116,11 @@ class TestRedeem:
     async def test_bearer_token_file_env_var_set_raises_redeem_error(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """ServiceXAdapter silently trusts BEARER_TOKEN_FILE over the refresh
-        token if it's set — this service must fail closed instead."""
+        """This service fails closed if BEARER_TOKEN_FILE is set, as
+        defense-in-depth against a future servicex release that might skip
+        the refresh-token exchange when it's present (see redeem.py's
+        comment — not an active bypass in the installed version, whose
+        force_reauth=True path always overwrites it)."""
         settings = Settings(
             _env_file=None, servicex_backend_url="https://sx.example.com"
         )

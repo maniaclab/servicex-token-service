@@ -63,12 +63,12 @@ def _expires_in(access_token: str) -> int:
     """
     try:
         payload = jwt.decode(access_token, options={"verify_signature": False})
-    except jwt.InvalidTokenError:
+        exp = payload.get("exp")
+        if exp is None:
+            return _DEFAULT_EXPIRES_IN
+        remaining = int(exp) - int(time.time())
+    except (jwt.InvalidTokenError, TypeError, ValueError):
         return _DEFAULT_EXPIRES_IN
-    exp = payload.get("exp")
-    if exp is None:
-        return _DEFAULT_EXPIRES_IN
-    remaining = int(exp) - int(time.time())
     return max(remaining, 0) or _DEFAULT_EXPIRES_IN
 
 
@@ -77,9 +77,9 @@ async def redeem(refresh_token: str, settings: Settings) -> RedeemedToken:
 
     Raises BadRefreshTokenError if ServiceX itself rejects the token
     (AuthorizationError), or RedeemError for any other failure (network,
-    timeout, unexpected response) — the caller (app.py) maps these to 400
-    and 502 respectively, matching the sibling services' error-classification
-    discipline.
+    timeout, unexpected response, or the BEARER_TOKEN_FILE guard below) —
+    the caller (app.py) maps these to 400 and 502 respectively, matching
+    the sibling services' error-classification discipline.
     """
     # ServiceXAdapter._get_authorization reads BEARER_TOKEN_FILE, but with
     # force_reauth=True (always, below) it unconditionally calls _get_token()
@@ -110,9 +110,14 @@ async def redeem(refresh_token: str, settings: Settings) -> RedeemedToken:
         logger.error("redeem_failed", error="timed out")  # noqa: TRY400
         raise RedeemError("ServiceX backend request timed out") from exc
     except Exception as exc:
-        # Deliberately logger.error (not .exception): exc_info would attach a
-        # traceback whose locals include refresh_token, bypassing
-        # TokenRedactProcessor entirely (it only redacts event-dict keys).
+        # Deliberately logger.error, not .exception: logging.py's current
+        # ExceptionRenderer configuration renders a plain stdlib traceback
+        # with no local-variable values, so this isn't preventing an active
+        # leak today. It's defense-in-depth against a future switch to
+        # structlog's ExceptionDictTransformer, whose default
+        # show_locals=True would put refresh_token's value straight into
+        # the log — TokenRedactProcessor only redacts event-dict keys, not
+        # traceback locals, so nothing else here would catch that.
         logger.error("redeem_failed", error=str(exc))  # noqa: TRY400
         raise RedeemError("ServiceX backend request failed") from exc
 
