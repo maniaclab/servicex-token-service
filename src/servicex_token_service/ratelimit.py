@@ -1,8 +1,12 @@
 """Per-subject in-memory sliding-window rate limiting.
 
-Deliberately in-process: this service runs as a single replica pinned to the
-Condor head node (the pool password lives there), so shared-state rate
-limiting infrastructure would be over-engineering.
+Deliberately in-process, not shared across replicas: this exists to bound
+abuse of this service's own /v1/redeem endpoint, not to protect a third
+party's lockout policy (see the design doc's rate-limiting rationale), so
+each replica tracking its own counter — making the effective limit roughly
+max_events * replica_count under a multi-replica deployment — is an
+acceptable approximation rather than a correctness bug worth the complexity
+of shared-state (e.g. Redis-backed) rate limiting.
 """
 
 from __future__ import annotations
