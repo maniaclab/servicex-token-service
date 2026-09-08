@@ -787,7 +787,7 @@ git commit -m "feat: add FastAPI app with /v1/redeem and health probes"
 **Files:**
 - Create: `tests/test_e2e.py`
 
-Port the shape of `/Users/kratsg/condor-token-service/tests/test_e2e.py` (read it for the exact idiom) — a smoke test hitting the full ASGI stack end-to-end with a valid broker token and a stubbed ServiceX backend, asserting the whole happy path (200, response schema, audit log) works together, distinct from the more granular per-module tests in earlier tasks.
+Port the shape of `/Users/kratsg/condor-token-service/tests/test_e2e.py` (read it for the exact idiom): a real-deployment-only smoke test, skipped by default (`pytestmark = pytest.mark.skipif(...)` gated on an env var), which only runs when explicitly opted into against a real deployed instance over plain `httpx` — no `ASGITransport`, no `conftest.py` stubs — asserting only externally observable response shape (200, `access_token`/`expires_in` present and well-formed). No audit-log assertion: server-side logs aren't observable from an external HTTP call. This is distinct from `tests/test_redeem_endpoint.py`'s `TestHappyPath` (which already covers the stubbed-ASGI happy path + audit logging in-process) — it exists for real-infra verification, not additional in-process coverage, and is a no-op in CI until a real ServiceX deployment exists to point at.
 
 **Step 1-5:** Standard TDD cycle, commit:
 
