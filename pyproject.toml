@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "servicex-token-service"
+version = "0.1.0"
+description = "ServiceX refresh-token redemption for the UChicago ATLAS Analysis Facility MCP platform"
+requires-python = ">=3.12,<3.13"
+# Dependencies are managed by pixi — see pixi.toml at the workspace root.
+dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/servicex_token_service"]
+
+[tool.ruff]
+show-fixes = true
+target-version = "py312"
+
+[tool.ruff.lint]
+extend-select = [
+  "ARG", "B", "BLE", "C4", "DTZ", "EM", "EXE", "FA", "FLY", "FURB", "G",
+  "I", "ICN", "ISC", "LOG", "PERF", "PGH", "PIE", "PL", "PT", "PTH",
+  "PYI", "Q", "RET", "RSE", "RUF", "SIM", "SLOT", "T10", "T20", "TC",
+  "TRY", "UP", "YTT",
+]
+ignore = [
+  "PLR09", "PLR2004",
+  "TRY003",  # Long exception messages inline — custom exception classes would be over-engineering
+  "EM101",   # String literal in exception
+  "EM102",   # f-string in exception
+  "ISC001",  # Conflicts with the ruff formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["servicex_token_service"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
