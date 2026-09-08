@@ -1,8 +1,12 @@
-"""Shared fixtures: RSA keypair, stubbed JWKS fetch, and a broker-token factory.
+"""Shared fixtures: RSA keypair, stubbed JWKS fetch, a broker-token factory,
+and a stubbed ServiceX backend + ASGI test client for endpoint tests.
 
 The JWKS is never fetched over the network in tests — ``stub_jwks_fetch``
 replaces ``identity._fetch_jwks`` (the single network boundary) with an
-in-process stub serving keys generated here.
+in-process stub serving keys generated here. Likewise, the ServiceX backend
+is never contacted — ``stub_servicex_backend`` replaces
+``redeem.ServiceXAdapter`` (redeem.py's only network boundary) the same way
+Task 5's tests did, but shared/reusable across endpoint tests.
 """
 
 from __future__ import annotations
@@ -13,16 +17,19 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import HTTPException
+from servicex.servicex_adapter import AuthorizationError
 
 from servicex_token_service import identity
+from servicex_token_service.app import create_app
 from servicex_token_service.config import Settings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable
 
 TEST_KID = "test-signing-key"
 
@@ -127,3 +134,85 @@ def make_token(
         )
 
     return _make
+
+
+def _make_servicex_access_token(expires_in: int = 600) -> str:
+    """Mint an unsigned-verification-only access token, mirroring test_redeem.py's helper."""
+    return jwt.encode(
+        {"exp": int(time.time()) + expires_in, "sub": "servicex-user"},
+        "irrelevant-since-unverified",
+        algorithm="HS256",
+    )
+
+
+class _FakeServiceXAdapter:
+    """Stands in for the real ServiceXAdapter's ``_get_authorization`` call."""
+
+    def __init__(self, stub: ServiceXBackendStub) -> None:
+        self._stub = stub
+        self.token: str | None = None
+
+    async def _get_authorization(self, *, force_reauth: bool) -> dict[str, str]:
+        assert force_reauth is True
+        if self._stub.outcome == "bad_refresh_token":
+            raise AuthorizationError(
+                "Not authorized to access serviceX at the stubbed backend"
+            )
+        if self._stub.outcome == "unreachable":
+            raise TimeoutError("connect timed out")
+        self.token = self._stub.access_token
+        return {}
+
+
+class ServiceXBackendStub:
+    """Callable standing in for ``redeem.ServiceXAdapter``.
+
+    ``outcome`` controls the stubbed ``/token/refresh`` exchange: "success"
+    (default) hands back ``access_token`` (a freshly minted JWT),
+    "bad_refresh_token" raises AuthorizationError (redeem.py maps this to
+    BadRefreshTokenError -> 400), and "unreachable" raises a network-shaped
+    exception (redeem.py maps this to RedeemError -> 502). Also records the
+    refresh_token it was constructed with so tests can assert it is never
+    logged.
+    """
+
+    def __init__(self) -> None:
+        self.outcome: str = "success"
+        self.access_token: str = _make_servicex_access_token()
+        self.received_refresh_token: str | None = None
+
+    def __call__(self, url: str, *, refresh_token: str) -> _FakeServiceXAdapter:
+        self.received_refresh_token = refresh_token
+        return _FakeServiceXAdapter(self)
+
+
+@pytest.fixture
+def stub_servicex_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> ServiceXBackendStub:
+    stub = ServiceXBackendStub()
+    monkeypatch.setattr("servicex_token_service.redeem.ServiceXAdapter", stub)
+    return stub
+
+
+@pytest.fixture
+def make_client(
+    stub_jwks_fetch: JwksFetchStub,
+) -> Callable[[Settings], httpx.AsyncClient]:
+    """Factory building an ASGI test client around a fresh app for *settings*."""
+
+    def _make(settings: Settings) -> httpx.AsyncClient:
+        app = create_app(settings)
+        return httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        )
+
+    return _make
+
+
+@pytest.fixture
+async def client(
+    make_client: Callable[[Settings], httpx.AsyncClient], settings: Settings
+) -> AsyncIterator[httpx.AsyncClient]:
+    async with make_client(settings) as test_client:
+        yield test_client
