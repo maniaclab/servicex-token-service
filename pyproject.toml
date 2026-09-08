@@ -13,6 +13,12 @@ dependencies = []
 [tool.hatch.build.targets.wheel]
 packages = ["src/servicex_token_service"]
 
+[[tool.mypy.overrides]]
+# The `servicex` package ships no py.typed marker (mirrors servicex-mcp's
+# identical override for the same reason).
+module = ["servicex.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 show-fixes = true
 target-version = "py312"
