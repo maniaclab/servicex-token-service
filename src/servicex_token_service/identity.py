@@ -155,7 +155,15 @@ async def verify_broker_token(token: str, settings: Settings) -> dict[str, Any]:
                     "require": ["exp", "iat", "sub"],
                 },
             )
-    except jwt.InvalidTokenError as exc:
+    except jwt.PyJWTError as exc:
+        # Covers jwt.InvalidTokenError (bad signature, expired, wrong
+        # aud/iss, ...) and also jwt.exceptions.InvalidKeyError, which
+        # jwt.algorithms.RSAAlgorithm.from_jwk raises for a malformed or
+        # non-RSA JWKS entry — NOT a subclass of InvalidTokenError, so a
+        # narrower except here would let a bad JWKS key escape uncaught as
+        # an unhandled 500 with no audit line at all (see
+        # docs/notes/2026-09-09-jwt-pyjwterror-audit-gap.md for the
+        # cross-service gap this closes only here).
         error = exc
     except (ValueError, KeyError) as exc:
         error = exc
