@@ -15,7 +15,7 @@ from typing import Annotated
 import structlog
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, ConfigDict, SecretStr
 
 from servicex_token_service.config import Settings, get_settings
 from servicex_token_service.identity import get_jwks, peek_sub, verify_broker_token
@@ -32,6 +32,12 @@ router = APIRouter()
 
 
 class RedeemRequest(BaseModel):
+    # extra="forbid": the backend URL is fixed by server config, never by
+    # the request (SSRF guard, see the design doc) — reject any attempt to
+    # send one (or any other unexpected field) with a clear 422 instead of
+    # silently ignoring it.
+    model_config = ConfigDict(extra="forbid")
+
     refresh_token: SecretStr
 
 
@@ -100,10 +106,11 @@ async def redeem_endpoint(
     retry_after = rate_limiter.try_acquire(subject)
     if retry_after is not None:
         _audit(subject=subject, jti=jti, outcome="denied", request_id=request_id)
+        retry_after_seconds = max(1, math.ceil(retry_after))
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Rate limit exceeded; retry after {retry_after:.0f}s",
-            headers={"Retry-After": str(max(1, math.ceil(retry_after)))},
+            detail=f"Rate limit exceeded; retry after {retry_after_seconds}s",
+            headers={"Retry-After": str(retry_after_seconds)},
         )
 
     try:

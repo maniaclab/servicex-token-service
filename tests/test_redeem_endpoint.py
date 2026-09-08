@@ -97,6 +97,25 @@ class TestHappyPath:
         assert access_token not in logged
 
 
+@pytest.mark.usefixtures("stub_servicex_backend")
+class TestRejectsExtraFields:
+    async def test_backend_url_field_is_rejected_with_422(
+        self, client: httpx.AsyncClient, make_token: Callable[..., str]
+    ) -> None:
+        """The backend URL is fixed by server config (SSRF guard, see the
+        design doc) — a client attempt to supply one must be rejected
+        outright, not silently ignored."""
+        resp = await client.post(
+            "/v1/redeem",
+            json={
+                "refresh_token": "the-refresh-token",
+                "backend_url": "https://attacker.example.com",
+            },
+            headers=_auth(make_token()),
+        )
+        assert resp.status_code == 422
+
+
 class TestAuthenticationFailures:
     async def test_missing_authorization_header_is_401(
         self, client: httpx.AsyncClient
