@@ -38,7 +38,9 @@ class Settings(BaseSettings):
     # caller would be the same SSRF class of bug that servicex-mcp's CIMD
     # module guards against (a server-side fetch of an attacker-controlled
     # URL). One deployment of this chart serves exactly one ServiceX
-    # backend; multiple backends mean multiple deployments.
+    # backend; multiple backends mean multiple deployments. The default is a
+    # non-resolvable placeholder (example.org, RFC 2606) — real deployments
+    # always set this explicitly via Helm's config.servicexBackendUrl.
     servicex_backend_url: str = "https://servicex.example.org"
 
     # Wall-clock bound on the outbound POST {servicex_backend_url}/token/refresh
