@@ -81,11 +81,14 @@ async def redeem(refresh_token: str, settings: Settings) -> RedeemedToken:
     and 502 respectively, matching the sibling services' error-classification
     discipline.
     """
-    # ServiceXAdapter._get_authorization checks BEARER_TOKEN_FILE before ever
-    # attempting the refresh-token exchange: if that path exists, it returns
-    # its contents as the access token and never touches refresh_token at
-    # all — silently bypassing the one thing this service exists to do. Fail
-    # closed rather than let a misconfigured environment redeem nothing.
+    # ServiceXAdapter._get_authorization reads BEARER_TOKEN_FILE, but with
+    # force_reauth=True (always, below) it unconditionally calls _get_token()
+    # afterward, which overwrites any bearer-token-file value with the real
+    # refresh-token exchange — so this isn't an active bypass in the installed
+    # servicex version's force_reauth=True path. Still fail closed rather than
+    # depend on that being true across every future servicex release: an
+    # adapter change that skips _get_token() when the file is present would
+    # silently defeat this service's whole purpose otherwise.
     if os.environ.get("BEARER_TOKEN_FILE"):
         raise RedeemError("BEARER_TOKEN_FILE must not be set for this service")
 
