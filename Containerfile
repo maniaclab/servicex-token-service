@@ -3,8 +3,12 @@ FROM ghcr.io/prefix-dev/pixi:latest AS builder
 WORKDIR /app
 COPY . .
 
+# Install only the service feature, not dev.
 RUN pixi install --frozen --environment service
 
+# Capture pixi's full activation (PATH, and anything else the environment
+# needs) as a static entrypoint script, so the final image needs no pixi
+# binary at runtime.
 RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
     pixi shell-hook --manifest-path /app/pixi.toml --environment service -s bash >> /app/entrypoint.sh && \
     echo 'exec "$@"' >> /app/entrypoint.sh && \
@@ -21,6 +25,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
+# Keep the same absolute path as the builder stage: the entrypoint script's
+# activation exports (and any console-script shebangs, e.g. uvicorn) are
+# baked in at this exact path, and relocating the env directory breaks them.
 COPY --from=builder /app/.pixi/envs/service /app/.pixi/envs/service
 COPY --from=builder /app/src /app/src
 COPY --from=builder /app/entrypoint.sh /app/entrypoint.sh

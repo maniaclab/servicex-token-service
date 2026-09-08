@@ -34,6 +34,8 @@ mypy = ">=1.10"
 pre-commit = ">=3.7"
 tbump = ">=6.7.0"
 
+# Each task name must be defined in exactly one feature: pixi resolves
+# duplicate names across features nondeterministically.
 [feature.dev.tasks]
 lint = { cmd = "ruff check src tests && ruff format --check src tests", description = "Ruff lint + format check" }
 fmt = { cmd = "ruff format src tests && ruff check --fix src tests", description = "Format and auto-fix source" }
