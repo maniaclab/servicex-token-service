@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "servicex-token-service.fullname" . }}
+  labels:
+    {{- include "servicex-token-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "servicex-token-service.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "servicex-token-service.selectorLabels" . | nindent 8 }}
+    spec:
+      # This pod never talks to the Kubernetes API; withholding the
+      # ServiceAccount token removes an entire credential class from a pod
+      # that already handles refresh tokens in-memory.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # This service holds no local secret material (see values.yaml) — the
+      # pod runs as a fixed non-root uid/gid with everything else locked
+      # down (read-only rootfs, drop ALL, no privilege escalation,
+      # RuntimeDefault seccomp).
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: servicex-token-service
+          image: {{ include "servicex-token-service.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - uvicorn
+            - servicex_token_service.app:app
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8080"
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Names must match Settings fields (config.py).
+            - name: BROKER_JWKS_URL
+              value: {{ .Values.config.brokerJwksUrl | quote }}
+            - name: BROKER_ISSUER
+              value: {{ .Values.config.brokerIssuer | quote }}
+            - name: EXPECTED_AUDIENCE
+              value: {{ .Values.config.expectedAudience | quote }}
+            - name: SERVICEX_BACKEND_URL
+              value: {{ .Values.config.servicexBackendUrl | quote }}
+            - name: REDEEM_TIMEOUT_SECONDS
+              value: {{ .Values.config.redeemTimeoutSeconds | quote }}
+            - name: RATE_LIMIT_MAX_EVENTS
+              value: {{ .Values.config.rateLimitMaxEvents | quote }}
+            - name: RATE_LIMIT_WINDOW_SECONDS
+              value: {{ .Values.config.rateLimitWindowSeconds | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            # Extra env vars from values (name: value pairs)
+            {{- range $key, $val := .Values.env }}
+            - name: {{ $key | quote }}
+              value: {{ $val | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            # readyz verifies the broker JWKS is fetchable. Deliberately
+            # does NOT check ServiceX backend reachability (see readyz's
+            # docstring in app.py) — a ServiceX outage must not flap this
+            # pod's readiness.
+            httpGet:
+              path: /readyz
+              port: http
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}

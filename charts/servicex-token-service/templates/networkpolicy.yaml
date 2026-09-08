@@ -1,0 +1,61 @@
+{{- if .Values.networkPolicy.enabled }}
+# Ingress: ONLY the broker pods may reach the redeem endpoint.
+# Egress: ONLY DNS, the origin serving the broker's JWKS, and the
+# configured ServiceX backend.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "servicex-token-service.fullname" . }}
+  labels:
+    {{- include "servicex-token-service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "servicex-token-service.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    - from:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.broker.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.broker.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: 8080
+
+  egress:
+    # DNS — required to resolve the JWKS origin and the ServiceX backend.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # The broker's JWKS endpoint (config.brokerJwksUrl).
+    - to:
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.egress.jwks.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.egress.jwks.podSelector | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.jwks.port }}
+
+    # The ServiceX backend (config.servicexBackendUrl) — an external HTTPS
+    # endpoint, not an in-cluster service, so this is an ipBlock rule rather
+    # than the namespaceSelector/podSelector shape used above. See the
+    # values.yaml comment on networkPolicy.egress.servicexBackend: the
+    # default CIDR is a permissive placeholder that operators must replace
+    # with the real address range for their ServiceX deployment (or swap
+    # this rule for a CNI-specific FQDN-based egress mechanism, if their
+    # cluster supports one).
+    - to:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.egress.servicexBackend.ipBlock.cidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.networkPolicy.egress.servicexBackend.port }}
+{{- end }}

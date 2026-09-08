@@ -1,0 +1,147 @@
+# Default values for servicex-token-service.
+#
+# This service exchanges a caller-supplied ServiceX personal refresh token
+# for a short-lived ServiceX access token via ServiceXAdapter. It holds no
+# local secret material of its own (no pool password, no keytab, no proxy
+# key) — the only credential it ever handles is the refresh token in each
+# request body, used once in-memory and never persisted. That is why this
+# chart has no Secret volume and no init container to fix one up, unlike
+# condor-token-service/krb5-token-service/voms-token-service.
+
+# Stateless service: unlike krb5-token-service/voms-token-service (which pin
+# to specific nodes for local secret access) or condor-token-service (whose
+# pool password Secret still ties it to particular login nodes), this
+# service has no local state and no node affinity requirement at all —
+# multiple replicas are trivially safe. Two replicas give the redeem path
+# HA. The in-memory per-subject rate limit is per-replica, so the effective
+# limit is rateLimitMaxEvents × replicaCount — acceptable for this endpoint.
+replicaCount: 2
+
+image:
+  registry: ghcr.io
+  repository: maniaclab/servicex-token-service
+  # Defaults to the chart's appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Pull secret(s) for the registry above (ghcr packages default to private),
+# e.g. [{name: ghcr-pull-secret}] with the SealedSecret deployed alongside.
+imagePullSecrets: []
+
+# Environment for the service (see src/servicex_token_service/config.py for
+# the full documentation of each setting).
+config:
+  # Where the broker publishes the JWKS for its AF Broker Identity Token
+  # signing keys (maniaclab/af-mcp-platform#162). Must agree with the
+  # networkPolicy.egress.jwks rule below: the default fetches IN-CLUSTER,
+  # matching the default egress selectors (the public
+  # https://mcp.af.uchicago.edu URL is blocked by that policy — using it
+  # requires replacing networkPolicy.egress.jwks with an ipBlock rule for
+  # the ingress). This is a fetch location only; iss validation is
+  # brokerIssuer below.
+  brokerJwksUrl: "http://af-mcp-platform-broker.mcp.svc.cluster.local:8080/.well-known/jwks.json"
+  # Required `iss` claim on inbound identity tokens.
+  brokerIssuer: "https://mcp.af.uchicago.edu"
+  # Required `aud` claim — this service's identity in the protocol.
+  expectedAudience: "servicex-token-service"
+  # The ServiceX deployment this service redeems tokens against. Fixed by
+  # config, never accepted from the request (SSRF guard — see config.py).
+  # One deployment of this chart serves exactly one ServiceX backend;
+  # multiple backends mean multiple deployments. Must agree with the
+  # networkPolicy.egress.servicexBackend rule below. The default is a
+  # non-resolvable placeholder (example.org, RFC 2606) — real deployments
+  # always set this explicitly.
+  servicexBackendUrl: "https://servicex.example.org"
+  # Wall-clock bound on the outbound POST {servicexBackendUrl}/token/refresh
+  # call. A ServiceX backend that never responds must not hang the request
+  # forever.
+  redeemTimeoutSeconds: 10
+  # Per-subject sliding-window rate limit.
+  rateLimitMaxEvents: 30
+  rateLimitWindowSeconds: 300
+  logLevel: "INFO"
+
+# Extra environment variables (name: value) appended verbatim.
+env: {}
+
+# Pod-level security context. This service holds no local secret material at
+# all (see the note at the top of this file), so nothing here requires
+# root: the pod runs as a fixed non-root uid/gid, the root filesystem is
+# read-only, all capabilities are dropped, privilege escalation is
+# disabled, seccomp is RuntimeDefault, and no ServiceAccount token is
+# mounted.
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+
+service:
+  # ClusterIP only — the sole intended client is the in-cluster broker.
+  port: 8080
+
+networkPolicy:
+  enabled: true
+  # Ingress: ONLY the broker may reach the redeem endpoint. Defaults match
+  # the production af-mcp-platform deployment as verified by the pool spike
+  # (see condor-token-service's docs/pool-spike.md): namespace `mcp`, broker
+  # pods labeled name=af-mcp-platform + component=broker.
+  broker:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: mcp
+    podSelector:
+      matchLabels:
+        app.kubernetes.io/name: af-mcp-platform
+        app.kubernetes.io/component: broker
+  egress:
+    # Besides DNS, ONLY the origin serving config.brokerJwksUrl and the
+    # origin serving config.servicexBackendUrl. Defaults assume the JWKS is
+    # served by the same in-cluster broker pods; if the JWKS is only
+    # reachable via an external ingress, replace the selectors with an
+    # ipBlock-based rule for that origin (see servicexBackend below for that
+    # shape).
+    jwks:
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: mcp
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: af-mcp-platform
+          app.kubernetes.io/component: broker
+      port: 8080
+    # The ServiceX backend (config.servicexBackendUrl) — the one genuinely
+    # new network dependency this service has that none of the sibling
+    # condor-token-service/krb5-token-service/voms-token-service charts need
+    # (they all talk to something in-cluster or on-node; this is the only
+    # one that makes an outbound call to an external HTTPS service).
+    #
+    # namespaceSelector/podSelector (as used for jwks above) only select
+    # in-cluster pods, so they don't apply here. Vanilla Kubernetes
+    # NetworkPolicy also has no native FQDN-based egress selector — only
+    # ipBlock (CIDR) or in-cluster selectors — so restricting egress to
+    # "just this hostname" requires knowing its IP range up front. The
+    # default below is deliberately permissive (0.0.0.0/0) as a placeholder:
+    # operators MUST replace `cidr` with the real IP range(s) that resolve
+    # for config.servicexBackendUrl's host once known, or (better, if
+    # available) switch this rule to a CNI-specific FQDN-based egress
+    # mechanism — e.g. Cilium's `toFQDNs`, Calico's `domains` — and adapt
+    # templates/networkpolicy.yaml accordingly, since not every cluster's
+    # CNI supports one.
+    servicexBackend:
+      ipBlock:
+        cidr: "0.0.0.0/0"
+      port: 443
+
+# e.g. {limits: {memory: 256Mi}, requests: {cpu: 50m, memory: 128Mi}}
+resources: {}
+
+nameOverride: ""
+fullnameOverride: ""
