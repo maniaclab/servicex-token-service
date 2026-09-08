@@ -96,6 +96,26 @@ class TestVerifyBrokerToken:
         claims = await identity.verify_broker_token(token, settings)
         assert claims["sub"] == "af-user-subject"
 
+    async def test_malformed_jwks_key_is_401_not_unhandled(
+        self,
+        make_token: Callable[..., str],
+        settings: Settings,
+        stub_jwks_fetch: JwksFetchStub,
+    ) -> None:
+        """jwt.algorithms.RSAAlgorithm.from_jwk raises InvalidKeyError (not
+        an InvalidTokenError subclass) for a key missing n/e — this must
+        classify as a normal 401, not escape as an unhandled exception with
+        no audit trail. Reassign .keys to a new list rather than mutating
+        the session-scoped jwks fixture in place."""
+        stub_jwks_fetch.keys = [
+            *stub_jwks_fetch.keys,
+            {"kid": "malformed-key", "kty": "RSA", "use": "sig"},
+        ]
+        token = make_token(kid="malformed-key")
+        with pytest.raises(HTTPException) as excinfo:
+            await identity.verify_broker_token(token, settings)
+        assert excinfo.value.status_code == 401
+
 
 class TestJwksCache:
     async def test_second_verification_within_ttl_uses_cache(

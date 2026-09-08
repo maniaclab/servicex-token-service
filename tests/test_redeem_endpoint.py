@@ -235,6 +235,9 @@ class TestRateLimit:
                 )
         assert resp.status_code == 429
         assert int(resp.headers["Retry-After"]) >= 1
+        # detail and the Retry-After header must never disagree (a prior
+        # bug rounded one with round-to-nearest and the other with ceil).
+        assert resp.headers["Retry-After"] in resp.json()["detail"]
         (audit,) = _audit_events(cap_logs)
         assert audit["outcome"] == "denied"
 
