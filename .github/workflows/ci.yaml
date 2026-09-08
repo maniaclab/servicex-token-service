@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+        with:
+          pixi-version: v0.72.1
+          environments: dev
+
+      - name: Lint
+        run: pixi run -e dev lint-all
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+        with:
+          pixi-version: v0.72.1
+          environments: dev
+
+      - name: Run tests
+        run: pixi run -e dev test
+
+  # No live-ServiceX integration job exists here (unlike condor-token-service's
+  # integration-condor job, which runs against a real htcondor/mini pool) —
+  # there is no analogous "real backend" to run in CI without live ServiceX
+  # credentials, matching servicex-mcp's own choice to leave live-credential
+  # testing out of CI. A live-ServiceX e2e test (tests/test_e2e.py) could be
+  # added here later behind an env-var gate — matching condor-token-service's
+  # CONDOR_MINI_INTEGRATION pattern — once real test credentials exist.
+
+  helm-lint:
+    name: Helm lint + template
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: "3.19.5"
+
+      - name: helm lint
+        run: helm lint charts/servicex-token-service
+
+      - name: helm template (dry-run)
+        run: helm template servicex-token-service charts/servicex-token-service --debug > /dev/null
