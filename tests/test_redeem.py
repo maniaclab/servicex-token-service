@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 import jwt
@@ -111,3 +112,46 @@ class TestRedeem:
         result = await redeem("token-no-exp", settings)
         assert result.access_token == access_token
         assert result.expires_in > 0  # falls back to a sane default
+
+    async def test_bearer_token_file_env_var_set_raises_redeem_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ServiceXAdapter silently trusts BEARER_TOKEN_FILE over the refresh
+        token if it's set — this service must fail closed instead."""
+        settings = Settings(
+            _env_file=None, servicex_backend_url="https://sx.example.com"
+        )
+        monkeypatch.setenv("BEARER_TOKEN_FILE", "/some/path")
+
+        class FakeAdapter:
+            def __init__(self, url: str, *, refresh_token: str) -> None:
+                pytest.fail("ServiceXAdapter must not be constructed")
+
+        monkeypatch.setattr(
+            "servicex_token_service.redeem.ServiceXAdapter", FakeAdapter
+        )
+        with pytest.raises(RedeemError, match="BEARER_TOKEN_FILE"):
+            await redeem("some-token", settings)
+
+    async def test_slow_backend_raises_redeem_error_after_configured_timeout(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = Settings(
+            _env_file=None,
+            servicex_backend_url="https://sx.example.com",
+            redeem_timeout_seconds=0.05,
+        )
+
+        class FakeAdapter:
+            def __init__(self, url: str, *, refresh_token: str) -> None:
+                self.token: str | None = None
+
+            async def _get_authorization(self, *, force_reauth: bool) -> dict[str, str]:
+                await asyncio.sleep(10)
+                return {}
+
+        monkeypatch.setattr(
+            "servicex_token_service.redeem.ServiceXAdapter", FakeAdapter
+        )
+        with pytest.raises(RedeemError, match="timed out"):
+            await redeem("some-token", settings)

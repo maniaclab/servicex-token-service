@@ -16,6 +16,8 @@ this exact same internal call, for the same reason (there is no public
 
 from __future__ import annotations
 
+import asyncio
+import os
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -79,6 +81,14 @@ async def redeem(refresh_token: str, settings: Settings) -> RedeemedToken:
     and 502 respectively, matching the sibling services' error-classification
     discipline.
     """
+    # ServiceXAdapter._get_authorization checks BEARER_TOKEN_FILE before ever
+    # attempting the refresh-token exchange: if that path exists, it returns
+    # its contents as the access token and never touches refresh_token at
+    # all — silently bypassing the one thing this service exists to do. Fail
+    # closed rather than let a misconfigured environment redeem nothing.
+    if os.environ.get("BEARER_TOKEN_FILE"):
+        raise RedeemError("BEARER_TOKEN_FILE must not be set for this service")
+
     adapter = ServiceXAdapter(
         settings.servicex_backend_url, refresh_token=refresh_token
     )
@@ -86,9 +96,16 @@ async def redeem(refresh_token: str, settings: Settings) -> RedeemedToken:
         # ServiceXAdapter has no public "just validate this token" method;
         # _get_authorization(force_reauth=True) is the smallest real call that
         # actually exercises the /token/refresh exchange (see module docstring).
-        await adapter._get_authorization(force_reauth=True)
+        await asyncio.wait_for(
+            adapter._get_authorization(force_reauth=True),
+            timeout=settings.redeem_timeout_seconds,
+        )
     except AuthorizationError as exc:
         raise BadRefreshTokenError(str(exc)) from exc
+    except TimeoutError as exc:
+        # Deliberately logger.error, same rationale as the broad except below.
+        logger.error("redeem_failed", error="timed out")  # noqa: TRY400
+        raise RedeemError("ServiceX backend request timed out") from exc
     except Exception as exc:
         # Deliberately logger.error (not .exception): exc_info would attach a
         # traceback whose locals include refresh_token, bypassing
