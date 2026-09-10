@@ -2,8 +2,8 @@ apiVersion: v2
 name: servicex-token-service
 description: ServiceX refresh-token redemption for the UChicago ATLAS Analysis Facility MCP platform
 type: application
-version: 0.1.2
-appVersion: "0.1.2"
+version: 0.1.3
+appVersion: "0.1.3"
 keywords: [servicex, oauth, mcp, atlas, hep, analysis-facility]
 home: https://github.com/maniaclab/servicex-token-service
 sources: [https://github.com/maniaclab/servicex-token-service]
