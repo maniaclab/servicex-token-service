@@ -166,7 +166,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application = FastAPI(
         title="servicex-token-service",
         description="ServiceX refresh-token redemption for the AF MCP platform",
-        version="0.1.1",
+        version="0.1.2",
     )
     application.state.settings = settings
     application.state.rate_limiter = RateLimiter(
