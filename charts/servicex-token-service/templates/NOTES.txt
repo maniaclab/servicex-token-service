@@ -1,14 +1,12 @@
 {{ .Chart.Name }} has been deployed.
-{{- if and .Values.networkPolicy.enabled (eq (.Values.networkPolicy.egress.servicexBackend.ipBlock.cidr | toString) "0.0.0.0/0") }}
+{{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.egress.servicexBackend.namespaceSelector.matchLabels) (not .Values.networkPolicy.egress.servicexBackend.podSelector.matchLabels) }}
 
 ##############################################################################
-WARNING: networkPolicy.egress.servicexBackend.ipBlock.cidr is still the
-default "0.0.0.0/0" — this NetworkPolicy currently allows egress on port
-{{ .Values.networkPolicy.egress.servicexBackend.port }} to ANY host, not just
-your ServiceX backend ({{ .Values.config.servicexBackendUrl }}). It provides
-no real egress restriction until you override it with that backend's actual
-IP range (or switch to a CNI-specific FQDN-based egress mechanism, e.g.
-Cilium's toFQDNs or Calico's domains, and adapt templates/networkpolicy.yaml
-accordingly).
+WARNING: networkPolicy.egress.servicexBackend.namespaceSelector/podSelector
+are both still empty — this NetworkPolicy's egress rule for port
+{{ .Values.networkPolicy.egress.servicexBackend.port }} selects nothing, so
+the redeem call to your ServiceX backend ({{ .Values.config.servicexBackendUrl }})
+will be blocked. Set both selectors to match your ServiceX deployment's
+namespace and pods.
 ##############################################################################
 {{- end }}

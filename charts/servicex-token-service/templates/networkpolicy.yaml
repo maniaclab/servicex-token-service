@@ -44,17 +44,13 @@ spec:
         - protocol: TCP
           port: {{ .Values.networkPolicy.egress.jwks.port }}
 
-    # The ServiceX backend (config.servicexBackendUrl) — an external HTTPS
-    # endpoint, not an in-cluster service, so this is an ipBlock rule rather
-    # than the namespaceSelector/podSelector shape used above. See the
-    # values.yaml comment on networkPolicy.egress.servicexBackend: the
-    # default CIDR is a permissive placeholder that operators must replace
-    # with the real address range for their ServiceX deployment (or swap
-    # this rule for a CNI-specific FQDN-based egress mechanism, if their
-    # cluster supports one).
+    # The ServiceX backend (config.servicexBackendUrl) — an in-cluster
+    # Service, same namespaceSelector/podSelector shape as jwks above.
     - to:
-        - ipBlock:
-            cidr: {{ .Values.networkPolicy.egress.servicexBackend.ipBlock.cidr | quote }}
+        - namespaceSelector:
+            {{- toYaml .Values.networkPolicy.egress.servicexBackend.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml .Values.networkPolicy.egress.servicexBackend.podSelector | nindent 12 }}
       ports:
         - protocol: TCP
           port: {{ .Values.networkPolicy.egress.servicexBackend.port }}

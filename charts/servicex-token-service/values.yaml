@@ -117,28 +117,17 @@ networkPolicy:
           app.kubernetes.io/name: af-mcp-platform
           app.kubernetes.io/component: broker
       port: 8080
-    # The ServiceX backend (config.servicexBackendUrl) — the one genuinely
-    # new network dependency this service has that none of the sibling
-    # condor-token-service/krb5-token-service/voms-token-service charts need
-    # (they all talk to something in-cluster or on-node; this is the only
-    # one that makes an outbound call to an external HTTPS service).
-    #
-    # namespaceSelector/podSelector (as used for jwks above) only select
-    # in-cluster pods, so they don't apply here. Vanilla Kubernetes
-    # NetworkPolicy also has no native FQDN-based egress selector — only
-    # ipBlock (CIDR) or in-cluster selectors — so restricting egress to
-    # "just this hostname" requires knowing its IP range up front. The
-    # default below is deliberately permissive (0.0.0.0/0) as a placeholder:
-    # operators MUST replace `cidr` with the real IP range(s) that resolve
-    # for config.servicexBackendUrl's host once known, or (better, if
-    # available) switch this rule to a CNI-specific FQDN-based egress
-    # mechanism — e.g. Cilium's `toFQDNs`, Calico's `domains` — and adapt
-    # templates/networkpolicy.yaml accordingly, since not every cluster's
-    # CNI supports one.
+    # The ServiceX backend (config.servicexBackendUrl) — an in-cluster
+    # Service, same namespaceSelector/podSelector shape as jwks above. No
+    # sensible cluster-wide default exists (every deployment's ServiceX
+    # namespace/pod labels differ) — operators MUST set these explicitly,
+    # same as config.servicexBackendUrl itself.
     servicexBackend:
-      ipBlock:
-        cidr: "0.0.0.0/0"
-      port: 443
+      namespaceSelector:
+        matchLabels: {}
+      podSelector:
+        matchLabels: {}
+      port: 8000
 
 # e.g. {limits: {memory: 256Mi}, requests: {cpu: 50m, memory: 128Mi}}
 resources: {}
