@@ -1,0 +1,9 @@
+.git
+.pixi
+__pycache__
+*.pyc
+.mypy_cache
+.pytest_cache
+.ruff_cache
+htmlcov
+.coverage
