@@ -32,13 +32,15 @@ spec:
         - name: servicex-token-service
           image: {{ include "servicex-token-service.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - uvicorn
-            - servicex_token_service.app:app
-            - --host
-            - "0.0.0.0"
-            - --port
-            - "8080"
+          # No command/args override: the image's own ENTRYPOINT
+          # (/app/entrypoint.sh) activates the pixi-built venv's PATH before
+          # exec'ing its baked-in CMD (uvicorn servicex_token_service.app:app
+          # --host 0.0.0.0 --port 8080) -- overriding `command` here bypasses
+          # that activation script entirely, since Kubernetes' `command:`
+          # maps to Docker's ENTRYPOINT, and a bare `uvicorn` isn't on the
+          # base image's PATH without it (confirmed live: every replica
+          # crash-looped with "exec: \"uvicorn\": executable file not found
+          # in $PATH" from the moment this chart was first deployed).
           securityContext:
             {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
